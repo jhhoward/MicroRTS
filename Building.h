@@ -4,6 +4,7 @@
 #include "Entity.h"
 
 #define MAX_BUILDINGS 28
+#define BUILDINGS_UPDATED_PER_FRAME 4
 
 enum BuildType
 {
@@ -51,15 +52,11 @@ typedef struct
 	
 	uint8_t hp;
 	
-	union
-	{
-		uint8_t resourcesLeft;
-		uint8_t buildProgress;
-	};
+	uint8_t buildProgress;
 } Building;
 
 extern Building AllBuildings[MAX_BUILDINGS];
-extern BuildingTypeInfo AllBuildingTypeInfo[Num_BuildingTypes];
+extern const BuildingTypeInfo AllBuildingTypeInfo[Num_BuildingTypes];
 
 inline Building* Building_Get(EntityID id)
 {
@@ -76,3 +73,4 @@ EntityID Building_Place(uint8_t team, uint8_t type, uint8_t x, uint8_t y);
 void Building_Destroy(EntityID building);
 bool Building_IsAdjacentTo(Building* building, uint8_t x, uint8_t y);
 EntityID Building_FindClosestOfType(uint8_t type, uint8_t team, uint8_t x, uint8_t y);
+void Building_Update(Building* building);

@@ -3,7 +3,7 @@
 
 #define BIT(x) (1 << (x))
 
-BuildingTypeInfo AllBuildingTypeInfo[Num_BuildingTypes] PROGMEM = 
+const BuildingTypeInfo AllBuildingTypeInfo[Num_BuildingTypes] PROGMEM = 
 {
 	// TownCenter
 	{

@@ -3,10 +3,11 @@
 
 #define BIT(x) (1 << (x))
 
-UnitTypeInfo AllUnitTypeInfo[Num_UnitTypes] PROGMEM = 
+const UnitTypeInfo AllUnitTypeInfo[Num_UnitTypes] PROGMEM = 
 {
 	// Peasant
 	{
+		100,			// goldCost
 		NULL,			// sprite
 		100,			// hp
 		1,				// attackStrength

@@ -1,5 +1,10 @@
+#include "avr/pgmspace.h"
 #include "Unit.h"
 #include "Building.h"
+#include "Map.h"
+#include "Pathing.h"
+#include "Player.h"
+#include "Resource.h"
 
 #define UNIT_TRAINING_ORDER_SIZE (MAX_UNITS / 2)
 
@@ -13,54 +18,44 @@ uint8_t AI_UnitTrainOrder[UNIT_TRAINING_ORDER_SIZE] =
 
 EntityID AI_FindSuitableUnit(uint8_t team, uint8_t unitType, uint8_t x, uint8_t y, bool includeBusy)
 {
+	EntityID result;
+	result.value = INVALID_ENTITY_VALUE;
+	uint8_t closestDistance = 0;
 	
-	return 0;
-}
-
-bool AI_FindClearSpace(uint8_t* buildX, uint8_t* buildY, uint8_t clearWidth, uint8_t clearHeight)
-{
-	uint8_t spiralSearchLength = 1;
-	uint8_t spiralDirection = North;
-	
-	while(spiralSearchLength < 64)
+	for(uint8_t n = 0; n < MAX_UNITS; n++)
 	{
-		for(uint8_t pass = 0; pass < 2; pass++)
+		Unit* unit = &AllUnits[n];
+		if(unit->team == team && unit->type == unitType && (unit->order == OrderType_None || unit->order == (OrderType_BuildingInteraction && unit->target.type == Entity_Resource)) )
 		{
-			for(uint8_t i = 0; i < spiralSearchLength; i++)
+			uint8_t distance = Path_CalculateDistance(unit->agent.x, unit->agent.y, x, y);
+			if(result.value == INVALID_ENTITY_VALUE || distance < closestDistance)
 			{
-				if(Map_IsClear(*buildX, *buildY, clearWidth, clearHeight))
+				result.type = Entity_Unit;
+				result.id = n;
+				closestDistance = distance;
+			}
+		}
+	}
+	
+	if(result.value == INVALID_ENTITY_VALUE && includeBusy)
+	{
+		for(uint8_t n = 0; n < MAX_UNITS; n++)
+		{
+			Unit* unit = &AllUnits[n];
+			if(unit->team == team && unit->type == unitType)
+			{
+				uint8_t distance = Path_CalculateDistance(unit->agent.x, unit->agent.y, x, y);
+				if(result.value == INVALID_ENTITY_VALUE || distance < closestDistance)
 				{
-					return true;
-				}
-
-				switch(spiralDirection)
-				{
-					case North:
-					if(*buildY > 0)
-						*buildY--;
-					break;
-					case East:
-					if(*buildX < MAP_SIZE - 1)
-						*buildX++;
-					break;
-					case South:
-					if(*buildY < MAP_SIZE - 1)
-						*buildY++;
-					break;
-					case West:
-					if(*buildX > 0)
-						*buildX--;
-					break;
+					result.type = Entity_Unit;
+					result.id = n;
+					closestDistance = distance;
 				}
 			}
-			
-			direction = (direction + 2) & 7;
 		}
-		
-		spiralSearchLength++;		
-	}	
+	}
 	
-	return false;
+	return result;
 }
 
 void AI_ConstructBuilding(uint8_t team, uint8_t buildingType)
@@ -76,10 +71,10 @@ void AI_ConstructBuilding(uint8_t team, uint8_t buildingType)
 	uint8_t clearWidth = AllBuildingTypeInfo[buildingType].width + 2;
 	uint8_t clearHeight = AllBuildingTypeInfo[buildingType].height + 2;
 	
-	uint8_t buildX = AllPlayers[team].baseX - (clearWidth >> 1);
-	uint8_t buildY = AllPlayers[team].baseY - (clearHeight >> 1);
+	uint8_t buildX = pgm_read_byte(&CurrentMap->playerStart[team].x) - (clearWidth >> 1);
+	uint8_t buildY = pgm_read_byte(&CurrentMap->playerStart[team].y) - (clearHeight >> 1);
 	
-	if(!AI_FindClearSpace(*buildX, *buildY, clearWidth, clearHeight))
+	if(!Map_FindClearSpace(&buildX, &buildY, clearWidth, clearHeight))
 	{
 		return;
 	}
@@ -110,9 +105,9 @@ void AI_TrainUnit(uint8_t team, uint8_t unitType)
 	
 	while(requiredBuildingType < Num_BuildingTypes)
 	{
-		BuildingTypeInfo* typeInfo = &AllBuildingTypeInfo[buildingType];
+		const BuildingTypeInfo* typeInfo = &AllBuildingTypeInfo[requiredBuildingType];
 		
-		if(!typeInfo->buildTypeMask & buildTypeMask) != 0)
+		if((typeInfo->buildTypeMask & buildTypeMask) != 0)
 		{
 			break;
 		}
@@ -157,12 +152,12 @@ void AI_Update(uint8_t team)
 		Building* building = &AllBuildings[n];
 		if(building->type != BuildingType_Invalid && building->team == team)
 		{
-			BuildingTypeInfo* buildingInfo = &AllBuildingTypeInfo[building->type];
+			const BuildingTypeInfo* buildingInfo = &AllBuildingTypeInfo[building->type];
 			
 			if(building->buildType == BuildType_Construct || building->hp < (buildingInfo->hp >> 1))
 			{
 				EntityID targetBuilding;
-				targetBuilding.type = EntityType_Building;
+				targetBuilding.type = Entity_Building;
 				targetBuilding.id = n;
 				
 				bool foundWorker = false;

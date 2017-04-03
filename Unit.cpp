@@ -1,4 +1,5 @@
 #include "Unit.h"
+#include "Fog.h"
 
 void Unit_InitSystem()
 {
@@ -38,7 +39,7 @@ EntityID Unit_Spawn(uint8_t team, uint8_t type, uint8_t x, uint8_t y)
 		Unit* unit = &AllUnits[index];
 		if(unit->type == UnitType_Invalid)
 		{
-			UnitTypeInfo* typeInfo = &AllUnitTypeInfo[type];
+			const UnitTypeInfo* typeInfo = &AllUnitTypeInfo[type];
 			
 			unit->type = type;
 			unit->team = team;
@@ -52,6 +53,9 @@ EntityID Unit_Spawn(uint8_t team, uint8_t type, uint8_t x, uint8_t y)
 			
 			result.id = index;
 			result.type = Entity_Unit;
+
+			Fog_RevealBlock(unit->team, unit->agent.x, unit->agent.y, UNIT_SIGHT_DISTANCE);
+
 			return result;
 		}
 		index ++;

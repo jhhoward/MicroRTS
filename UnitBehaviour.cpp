@@ -4,6 +4,7 @@
 #include "Building.h"
 #include "Resource.h"
 #include "Player.h"
+#include "Fog.h"
 
 #define UNIT_ATTACK_FRAMES 4
 #define UNIT_REPAIR_FRAMES 4
@@ -159,6 +160,8 @@ void Unit_Update(Unit* unit)
 				return;
 			}
 
+			Fog_RevealBlock(unit->team, unit->agent.x, unit->agent.y, UNIT_SIGHT_DISTANCE);
+			
 			if(!Agent_IsPathing(&unit->agent))
 			{
 				Unit_SwitchState(unit, UnitState_Idle);
@@ -172,7 +175,7 @@ void Unit_Update(Unit* unit)
 			Building* targetBuilding = Building_Get(unit->target);
 			if(targetBuilding)
 			{
-				BuildingTypeInfo* buildingInfo = &AllBuildingTypeInfo[targetBuilding->type];
+				const BuildingTypeInfo* buildingInfo = &AllBuildingTypeInfo[targetBuilding->type];
 				if((unit->state == UnitState_Repairing || targetBuilding->buildType == BuildType_Construct) && targetBuilding->hp < buildingInfo->hp)
 				{
 					unit->frame ++;
@@ -278,7 +281,7 @@ void Unit_Update(Unit* unit)
 				if(unit->target.type == Entity_Building)
 				{
 					Building* targetBuilding = Building_Get(unit->target);
-					BuildingTypeInfo* targetBuildingInfo = &AllBuildingTypeInfo[targetBuilding->type];
+					const BuildingTypeInfo* targetBuildingInfo = &AllBuildingTypeInfo[targetBuilding->type];
 					
 					if(targetBuilding->buildType == BuildType_Construct)
 					{

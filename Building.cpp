@@ -1,6 +1,9 @@
 #include "Building.h"
 #include "Unit.h"
 #include "Pathing.h"
+#include "Map.h"
+
+#define MAX_BUILD_PROGRESS 128
 
 void Building_InitSystem()
 {
@@ -21,7 +24,7 @@ EntityID Building_GetAtLocation(uint8_t x, uint8_t y)
 		Building* building = &AllBuildings[index];
 		if(building->type != BuildingType_Invalid)
 		{
-			BuildingTypeInfo* typeInfo = &AllBuildingTypeInfo[building->type];
+			const BuildingTypeInfo* typeInfo = &AllBuildingTypeInfo[building->type];
 			if(x >= building->x && y >= building->y && x < building->x + typeInfo->width && y < building->y + typeInfo->height)
 			{
 				result.type = Entity_Building;
@@ -84,7 +87,7 @@ void Building_Destroy(EntityID id)
 
 bool Building_IsAdjacentTo(Building* building, uint8_t x, uint8_t y)
 {
-	BuildingTypeInfo* typeInfo = &AllBuildingTypeInfo[building->type];
+	const BuildingTypeInfo* typeInfo = &AllBuildingTypeInfo[building->type];
 	
 	if(building->x > 0 && x < building->x - 1)
 		return false;
@@ -124,4 +127,87 @@ EntityID Building_FindClosestOfType(uint8_t type, uint8_t team, uint8_t x, uint8
 	}
 	
 	return result;
+}
+
+void Building_FindAdjacentSpace(Building* building, uint8_t* outX, uint8_t* outY)
+{
+	const BuildingTypeInfo* info = &AllBuildingTypeInfo[building->type];
+	
+	for(uint8_t ring = 0; ring < 64; ring++)
+	{
+		for(int x = building->x - ring; x < building->x + info->width + ring; x++)
+		{
+			if(x >= 0 && x < MAP_SIZE)
+			{
+				if(building->y - ring - 1 >= 0 && Map_IsWalkable(x, building->y - ring - 1))
+				{
+					*outX = x;
+					*outY = building->y - ring - 1;
+					return;
+				}
+				if(building->y + ring + info->height < MAP_SIZE && Map_IsWalkable(x, building->y + ring + info->height))
+				{
+					*outX = x;
+					*outY = building->y + ring + info->height;
+					return;
+				}
+			}
+		}
+		for(int y = building->y - ring - 1; y <= building->y + info->height + ring + 1; y++)
+		{
+			if(y >= 0 && y < MAP_SIZE)
+			{
+				if(building->x - ring - 1 >= 0 && Map_IsWalkable(building->x - ring - 1, y))
+				{
+					*outX = building->x - ring - 1;
+					*outY = y;
+					return;
+				}
+				if(building->x + info->width + ring + 1 < MAP_SIZE && Map_IsWalkable(building->x + info->width + ring + 1, y))
+				{
+					*outX = building->x + ring + info->width + 1;
+					*outY = y;
+					return;
+				}
+			}
+		}
+	}
+}
+
+void Building_Update(Building* building)
+{
+	if(building->buildType > BuildType_Construct)
+	{
+		building->buildProgress++;
+		
+		if(building->buildProgress >= MAX_BUILD_PROGRESS)
+		{
+			switch(building->buildType)
+			{
+				case BuildType_TrainPeasant:
+				case BuildType_TrainSoldier:
+				case BuildType_TrainArcher:
+				case BuildType_TrainMage:
+				{
+					uint8_t unitType = building->buildType - BuildType_TrainPeasant;
+					uint8_t spawnX, spawnY;
+					
+					Building_FindAdjacentSpace(building, &spawnX, &spawnY);
+					
+					Unit_Spawn(building->team, unitType, spawnX, spawnY);
+				}
+				break;
+				case BuildType_Upgrade1:
+				case BuildType_Upgrade2:
+				{
+					// TODO
+				}
+				break;
+			}
+			
+			building->buildType = BuildType_None;
+		}
+		
+		building->buildProgress = 0;
+	}
 }

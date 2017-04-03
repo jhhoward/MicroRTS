@@ -3,6 +3,11 @@
 
 uint8_t ResourceState[MAX_RESOURCES >> 1];
 
+void Resource_InitSystem()
+{
+	// TODO
+}
+
 uint8_t Resource_GetRemaining(EntityID id)
 {
 	if(id.type == Entity_Resource && id.id < MAX_RESOURCES)
@@ -52,18 +57,17 @@ EntityID Resource_GetAtLocation(uint8_t x, uint8_t y)
 	found.value = 0xff;
 	
 	uint8_t resourceIndex = 0;
-	uint8_t* locationPtr = ResourceLocations;
 	
 	while(resourceIndex < MAX_RESOURCES)
 	{
-		if(x == locationPtr[0] && y == locationPtr[1])
+		if(x == pgm_read_byte(&CurrentMap->resourceLocations[resourceIndex].x)
+			&& y == pgm_read_byte(&CurrentMap->resourceLocations[resourceIndex].y))
 		{
 			found.id = resourceIndex;
 			found.type = Entity_Resource;
 			return found;
 		}
 		
-		locationPtr += 2;
 		resourceIndex++;
 	}
 	
@@ -72,7 +76,7 @@ EntityID Resource_GetAtLocation(uint8_t x, uint8_t y)
 
 EntityID Resource_FindClosest(uint8_t x, uint8_t y, uint8_t maxDistance)
 {
-	uint8_t index;
+	uint8_t index = 0;
 	EntityID result;
 	
 	result.value = INVALID_ENTITY_VALUE;
