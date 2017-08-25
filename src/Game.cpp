@@ -5,22 +5,38 @@
 #include "Resource.h"
 #include "AI.h"
 #include "Player.h"
+#include "System.h"
+#include "Map.h"
 
 GameData Game;
 
 static uint8_t UnitUpdateIndex = 0;
 static uint8_t BuildingUpdateIndex = 0;
 
-void Game_StartLevel()
+extern const Map TestMap;
+
+void Game_StartLevel(const Map* map)
+{
+	Game.Map = map;
+	
+	Player_Init(Player1_Team);
+	Player_Init(Player2_Team);
+	
+	Game.state = GameState_Playing;
+	Game.isSplitScreen = false;
+//	Game.player1 = Player_Human;
+	Game.player1 = Player_AI;
+	Game.player2 = Player_AI;
+//	Game.player2 = Player_Human;
+}
+
+void Game_Init()
 {
 	Unit_InitSystem();
 	Building_InitSystem();
 	Resource_InitSystem();
 	
-	Game.state = GameState_Playing;
-	Game.isSplitScreen = false;
-	Game.player1 = Player_Human;
-	Game.player2 = Player_AI;
+	Game_StartLevel(&TestMap);
 }
 
 void Game_Update()
@@ -48,7 +64,7 @@ void Game_Update()
 				Building_Update(&Game.Buildings[BuildingUpdateIndex]);
 				
 				BuildingUpdateIndex++;
-				if(BuildingUpdateIndex == MAX_UNITS)
+				if(BuildingUpdateIndex == MAX_BUILDINGS)
 					BuildingUpdateIndex = 0;
 				counter--;
 			}
@@ -66,21 +82,13 @@ void Game_Update()
 	}
 }
 
-int Game_Main()
-{
-	Game_StartLevel();
-	
-	while(1)
-	{
-		Game_Update();
-	}
-}
-
-#ifdef WIN32
 int main(int argc, char* argv[])
 {
-	Game_Main();
+	System_Init();
+	
+	Game_Init();
+
+	System_Run(&Game_Update);
 	
 	return 0;
 }
-#endif

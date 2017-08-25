@@ -1,3 +1,4 @@
+#include "System.h"
 #include "Entity.h"
 #include "Unit.h"
 #include "Pathing.h"
@@ -7,22 +8,121 @@
 #include "Fog.h"
 #include "Game.h"
 
+#define UNIT_MINING_LOOPS 8
 #define UNIT_ATTACK_FRAMES 4
 #define UNIT_REPAIR_FRAMES 4
+#define UNIT_DYING_FRAMES 4
 #define UNIT_MINE_FRAMES 4
 #define UNIT_MOVE_FRAMES 4
 #define RESOURCE_SEARCH_DISTANCE 16			// How far to search for alternative resource
 #define RESOURCE_COLLECTION_AMOUNT 10		// How much is collected per mining trip
+#define UNIT_ATTACK_COOLDOWN_TIME 10
 
 inline void Unit_SwitchState(Unit* unit, uint8_t newState)
 {
 	unit->state = newState;
 	unit->frame = 0;
+	unit->stateData = 0;
+}
+
+inline bool Unit_CanInterruptState(uint8_t stateType)
+{
+	return stateType == UnitState_Constructing || stateType == UnitState_Mining || stateType == UnitState_Repairing;
+}
+
+void Unit_Kill(Unit* unit)
+{
+	unit->hp = 0;
+	Unit_SwitchState(unit, UnitState_Dead);
+}
+
+EntityID Unit_FindClosestTarget(uint8_t targetTeam, uint8_t x, uint8_t y, uint8_t searchDistance)
+{
+	EntityID result;
+	result.value = INVALID_ENTITY_VALUE;
+	int closestDistance = 0;
+	
+	for(uint8_t n = 0; n < MAX_UNITS; n++)
+	{
+		Unit* unit = &Game.Units[n];
+		if(unit->type != UnitType_Invalid && unit->team == targetTeam && unit->hp > 0)
+		{
+			int distance = Path_CalculateDistance(x, y, unit->agent.x, unit->agent.y);
+			if(distance < searchDistance && (result.value == INVALID_ENTITY_VALUE || distance < closestDistance))
+			{
+				result.type = Entity_Unit;
+				result.id = n;
+				closestDistance = distance;
+			}
+		}
+	}
+	
+	for(uint8_t n = 0; n < MAX_BUILDINGS; n++)
+	{
+		Building* building = &Game.Buildings[n];
+		if(building->type != BuildingType_Invalid && building->team == targetTeam && building->hp > 0)
+		{
+			// TODO: better distance calculation for buildings
+			int distance = Path_CalculateDistance(x, y, building->x, building->y);
+			if(distance < searchDistance && (result.value == INVALID_ENTITY_VALUE || distance < closestDistance))
+			{
+				result.type = Entity_Building;
+				result.id = n;
+				closestDistance = distance;
+			}
+		}
+	}
+	
+	return result;
+}
+
+void Unit_InflictDamage(Unit* unit, EntityID target)
+{
+	const UnitTypeInfo* typeInfo = &AllUnitTypeInfo[unit->type];
+	uint8_t attackStrength = pgm_read_byte(&typeInfo->attackStrength);
+	
+	LOG("Attacking %x with attack of %d\n", target.value, attackStrength);
+	
+	if(target.type == Entity_Building)
+	{
+		attackStrength >>= 2;
+		if(attackStrength == 0)
+			attackStrength = 1;
+		
+		Building* targetBuilding = Building_Get(target);
+		if(targetBuilding)
+		{
+			if(attackStrength >= targetBuilding->hp)
+			{
+				Building_Demolish(targetBuilding);
+			}
+			else
+			{
+				targetBuilding->hp -= attackStrength;
+			}
+		}
+	}
+	else if(target.type == Entity_Unit)
+	{
+		Unit* targetUnit = Unit_Get(target);
+		
+		if(targetUnit)
+		{
+			if(attackStrength >= targetUnit->hp)
+			{
+				Unit_Kill(targetUnit);
+			}
+			else
+			{
+				targetUnit->hp -= attackStrength;
+			}
+		}
+	}
 }
 
 void Unit_OrderMove(Unit* unit, uint8_t x, uint8_t y)
 {
-	if(unit->state != UnitState_Moving)
+	if(Unit_CanInterruptState(unit->state))
 	{
 		Unit_SwitchState(unit, UnitState_Idle);
 	}
@@ -33,7 +133,7 @@ void Unit_OrderMove(Unit* unit, uint8_t x, uint8_t y)
 
 void Unit_OrderAttack(Unit* unit, EntityID target)
 {
-	if(unit->state != UnitState_Moving)
+	if(Unit_CanInterruptState(unit->state))
 	{
 		Unit_SwitchState(unit, UnitState_Idle);
 	}
@@ -44,7 +144,7 @@ void Unit_OrderAttack(Unit* unit, EntityID target)
 
 void Unit_OrderBuildingInteraction(Unit* unit, EntityID target)
 {
-	if(unit->state != UnitState_Moving)
+	if(Unit_CanInterruptState(unit->state))
 	{
 		Unit_SwitchState(unit, UnitState_Idle);
 	}
@@ -55,7 +155,7 @@ void Unit_OrderBuildingInteraction(Unit* unit, EntityID target)
 
 void Unit_OrderStop(Unit* unit)
 {
-	if(unit->state != UnitState_Moving)
+	if(Unit_CanInterruptState(unit->state))
 	{
 		Unit_SwitchState(unit, UnitState_Idle);
 	}
@@ -77,11 +177,33 @@ bool Unit_PathToTarget(Unit* unit, EntityID target)
 				return true;
 			}
 			
-			uint8_t targetX = targetBuilding->x;
-			uint8_t targetY = targetBuilding->y;
+			const BuildingTypeInfo* buildingInfo = &AllBuildingTypeInfo[targetBuilding->type];
 			
-			if(!Agent_IsPathing(&unit->agent) || unit->agent.path.targetX != targetX || unit->agent.path.targetY != targetY)
+			uint8_t buildingWidth = pgm_read_byte(&buildingInfo->width);
+			uint8_t buildingHeight = pgm_read_byte(&buildingInfo->height);
+			
+			if(!Agent_IsPathing(&unit->agent) || unit->agent.path.targetX < targetBuilding->x - 1 || unit->agent.path.targetY < targetBuilding->y - 1
+			|| unit->agent.path.targetX > targetBuilding->x + buildingWidth || unit->agent.path.targetY > targetBuilding->y + buildingHeight)
 			{
+				uint8_t targetX = unit->agent.x;
+				uint8_t targetY = unit->agent.y;
+				if(targetBuilding->x > 0 && targetX < targetBuilding->x - 1)
+				{
+					targetX = targetBuilding->x - 1;
+				}
+				else if(targetX > targetBuilding->x + buildingWidth)
+				{
+					targetX = targetBuilding->x + buildingWidth;
+				}
+				if(targetBuilding->y > 0 && targetY < targetBuilding->y - 1)
+				{
+					targetY = targetBuilding->y - 1;
+				}
+				else if(targetY > targetBuilding->y + buildingHeight)
+				{
+					targetY = targetBuilding->y + buildingHeight;
+				}
+				
 				Agent_PathTo(&unit->agent, targetX, targetY);
 			}
 		}
@@ -97,7 +219,7 @@ bool Unit_PathToTarget(Unit* unit, EntityID target)
 				return true;
 			}
 			
-			if(!Agent_IsPathing(&unit->agent) || (unit->agent.pathingState != Pathing_FollowLeftWall && unit->agent.pathingState != Pathing_FollowRightWall && unit->agent.path.targetX != targetUnit->agent.x && unit->agent.path.targetY != targetUnit->agent.y))
+			if(!Agent_IsPathing(&unit->agent) || (unit->agent.pathingState != Pathing_FollowLeftWall && unit->agent.pathingState != Pathing_FollowRightWall && (unit->agent.path.targetX != targetUnit->agent.x || unit->agent.path.targetY != targetUnit->agent.y)))
 			{
 				Agent_PathTo(&unit->agent, targetUnit->agent.x, targetUnit->agent.y);
 			}
@@ -112,12 +234,14 @@ bool Unit_PathToTarget(Unit* unit, EntityID target)
 		if(Unit_IsAdjacentTo(unit, targetX, targetY))
 		{
 			Agent_StopPathing(&unit->agent);
+			LOG("%d : Arrived at resource %d %d\n", unit->team, targetX, targetY);
 			return true;
 		}
 		
 		if(!Agent_IsPathing(&unit->agent) || unit->agent.path.targetX != targetX || unit->agent.path.targetY != targetY)
 		{
 			Agent_PathTo(&unit->agent, targetX, targetY);
+			//LOG("%d : Pathing to resource %d %d -> %d %d\n", unit->team, unit->agent.x, unit->agent.y, targetX, targetY);
 		}
 	}
 	else
@@ -128,10 +252,37 @@ bool Unit_PathToTarget(Unit* unit, EntityID target)
 	return false;
 }
 
+bool IsTargetAlive(EntityID target)
+{
+	if(target.type == Entity_Unit)
+	{
+		return Game.Units[target.id].type != UnitType_Invalid && Game.Units[target.id].hp > 0;
+	}
+	else if(target.type == Entity_Building)
+	{
+		return Game.Buildings[target.id].type != BuildingType_Invalid && Game.Buildings[target.id].hp > 0;
+	}
+	return false;
+}
+
 void Unit_Update(Unit* unit)
 {
+	if(unit->hp == 0 && unit->state != UnitState_Dead)
+	{
+		Unit_SwitchState(unit, UnitState_Dead);
+	}
+	
 	switch(unit->state)
 	{
+		case UnitState_Dead:
+		{
+			if(unit->frame < UNIT_DYING_FRAMES - 1)
+			{
+				unit->frame ++;
+			}
+
+			return;
+		}
 		case UnitState_Moving:
 		{
 			unit->frame ++;
@@ -143,21 +294,22 @@ void Unit_Update(Unit* unit)
 			if(unit->offsetX < 0)
 			{
 				unit->offsetX++;
-				return;
 			}
 			else if(unit->offsetX > 0)
 			{
 				unit->offsetX--;
-				return;
 			}
 			if(unit->offsetY < 0)
 			{
 				unit->offsetY++;
-				return;
 			}
 			else if(unit->offsetY > 0)
 			{
 				unit->offsetY--;
+			}
+			
+			if(unit->offsetX != 0 || unit->offsetY != 0)
+			{
 				return;
 			}
 
@@ -174,28 +326,35 @@ void Unit_Update(Unit* unit)
 		case UnitState_Repairing:
 		{
 			Building* targetBuilding = Building_Get(unit->target);
-			if(targetBuilding)
+			if(targetBuilding && targetBuilding->hp > 0)
 			{
 				const BuildingTypeInfo* buildingInfo = &AllBuildingTypeInfo[targetBuilding->type];
 				if((unit->state == UnitState_Repairing || targetBuilding->buildType == BuildType_Construct) && targetBuilding->hp < buildingInfo->hp)
 				{
-					unit->frame ++;
-					
-					if(unit->frame < UNIT_REPAIR_FRAMES)
+					if(!Building_IsAdjacentTo(targetBuilding, unit->agent.x, unit->agent.y))
 					{
-						return;
+						Unit_SwitchState(unit, UnitState_Idle);
 					}
 					else
 					{
-						unit->frame = 0;
-						// TODO: proper repairing / constructing logic
-						targetBuilding->hp ++;
+						unit->frame ++;
 						
-						if(targetBuilding->buildType == BuildType_Construct)
+						if(unit->frame < UNIT_REPAIR_FRAMES)
 						{
-							if(targetBuilding->hp == buildingInfo->hp)
+							return;
+						}
+						else
+						{
+							unit->frame = 0;
+							// TODO: proper repairing / constructing logic
+							targetBuilding->hp ++;
+							
+							if(targetBuilding->buildType == BuildType_Construct)
 							{
-								targetBuilding->buildType = BuildType_None;
+								if(targetBuilding->hp == buildingInfo->hp)
+								{
+									targetBuilding->buildType = BuildType_None;
+								}
 							}
 						}
 					}
@@ -214,45 +373,82 @@ void Unit_Update(Unit* unit)
 		
 		case UnitState_Attacking:
 		{
-			unit->frame++;
-			
-			if(!IsEntityValid(unit->target))
+			if(unit->frame == UNIT_ATTACK_FRAMES)
+			{
+				if(unit->attackCooldown > 0)
+				{
+					unit->attackCooldown--;
+					return;
+				}
+				else
+				{
+					Unit_SwitchState(unit, UnitState_Idle);
+				}
+			}
+			else if(!IsEntityValid(unit->attackTarget))
 			{
 				Unit_OrderStop(unit);
-			}
-			else if(unit->frame < UNIT_ATTACK_FRAMES)
-			{
-				return;
+				Unit_SwitchState(unit, UnitState_Idle);
 			}
 			else
 			{
-				// TODO: inflict damage on target
-				Unit_SwitchState(unit, UnitState_Idle);
+				unit->frame++;
+				
+				if(unit->frame < UNIT_ATTACK_FRAMES)
+				{
+					return;
+				}
+
+				// TODO: ranged combat
+				Unit_InflictDamage(unit, unit->attackTarget);
+				unit->attackCooldown = UNIT_ATTACK_COOLDOWN_TIME;
 			}
 		}
 		break;
 		
 		case UnitState_Mining:
 		{
-			unit->frame++;
-			
 			if(!IsEntityValid(unit->target))
 			{
 				Unit_OrderStop(unit);
 			}
-			else if(!Resource_GetRemaining(unit->target))
-			{
-				// TODO: find closest alternative
-			}
-			else if(unit->frame < UNIT_MINE_FRAMES)
-			{
-				return;
-			}
 			else
 			{
-				Unit_SwitchState(unit, UnitState_Idle);
-				Resource_ReduceCount(unit->target);
-				unit->collectedResource = 1;
+				uint8_t resourceX, resourceY;
+				Resource_GetLocation(unit->target, &resourceX, &resourceY);
+
+				if(!Resource_GetRemaining(unit->target))
+				{
+					unit->target = Resource_FindClosest(resourceX, resourceY, RESOURCE_SEARCH_DISTANCE);
+					Unit_SwitchState(unit, UnitState_Idle);
+				}
+				else if(!Unit_IsAdjacentTo(unit, resourceX, resourceY))
+				{
+					Unit_SwitchState(unit, UnitState_Idle);
+				}
+				else 
+				{
+					unit->frame++;
+					
+					if(unit->frame < UNIT_MINE_FRAMES)
+					{
+						return;
+					}
+					
+					unit->frame = 0;
+					if(unit->miningProgress >= UNIT_MINING_LOOPS)
+					{
+						LOG("%d Mined resource %d\n", unit->team, unit->target.id);
+						Resource_ReduceCount(unit->target);
+						Unit_SwitchState(unit, UnitState_Idle);
+						unit->collectedResource = 1;
+					}
+					else
+					{
+						unit->miningProgress++;
+						return;
+					}
+				}
 			}
 		}
 		break;
@@ -313,6 +509,7 @@ void Unit_Update(Unit* unit)
 						{
 							unit->collectedResource = 0;
 							Game.Players[unit->team].gold += RESOURCE_COLLECTION_AMOUNT;
+							LOG("%d Collected resource\n", unit->team);
 						}
 					}
 					else
@@ -324,12 +521,17 @@ void Unit_Update(Unit* unit)
 						{
 							if(Unit_PathToTarget(unit, unit->target))
 							{
+								LOG("%d Begin mining\n", unit->team);
 								Unit_SwitchState(unit, UnitState_Mining);
+							}
+							else if(unit->agent.pathingState == Pathing_Failed)
+							{
+								unit->target = Resource_FindClosest(unit->agent.x, unit->agent.y, RESOURCE_SEARCH_DISTANCE);
 							}
 						}
 						else
 						{
-							unit->target = Resource_FindClosest(unit->agent.x, unit->agent.y, RESOURCE_SEARCH_DISTANCE);
+							unit->target = Resource_FindClosest(resourceX, resourceY, RESOURCE_SEARCH_DISTANCE);
 						}
 					}
 				}
@@ -342,11 +544,12 @@ void Unit_Update(Unit* unit)
 		break;
 		case OrderType_Attack:
 		{
-			if(IsEntityValid(unit->target))
+			if(IsEntityValid(unit->target) && IsTargetAlive(unit->target))
 			{
 				if(Unit_PathToTarget(unit, unit->target))
 				{
 					Unit_SwitchState(unit, UnitState_Attacking);
+					unit->attackTarget = unit->target;
 				}
 			}
 			else
@@ -365,6 +568,7 @@ void Unit_Update(Unit* unit)
 		
 		if(oldX != unit->agent.x || oldY != unit->agent.y)
 		{
+//			LOG("%d : unit moved to %d %d\n", unit->team, unit->agent.x, unit->agent.y);
 			if(oldX < unit->agent.x)
 			{
 				unit->offsetX = -8;

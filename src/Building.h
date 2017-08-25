@@ -65,3 +65,6 @@ void Building_Destroy(EntityID building);
 bool Building_IsAdjacentTo(Building* building, uint8_t x, uint8_t y);
 EntityID Building_FindClosestOfType(uint8_t type, uint8_t team, uint8_t x, uint8_t y);
 void Building_Update(Building* building);
+void Building_FindAdjacentSpace(Building* building, uint8_t* outX, uint8_t* outY);
+void Building_TrainUnit(Building* building, uint8_t unitType);
+void Building_Demolish(Building* building);

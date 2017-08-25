@@ -1,3 +1,4 @@
+#include "System.h"
 #include "Resource.h"
 #include "Pathing.h"
 #include "Map.h"
@@ -5,7 +6,10 @@
 
 void Resource_InitSystem()
 {
-	// TODO
+	for(uint8_t n = 0; n < MAX_RESOURCES / 2; n++)
+	{
+		Game.Resources[n] = 0xff;
+	}
 }
 
 uint8_t Resource_GetRemaining(EntityID id)
@@ -38,16 +42,18 @@ void Resource_ReduceCount(EntityID id)
 		{ 
 			if(state & 0xf0)
 			{
-				Game.Resources[index] = (state & 0x0f) & ((state & 0xf0) - 0x10);
+				Game.Resources[index] = (state & 0x0f) | ((state & 0xf0) - 0x10);
 			}
 		}
 		else
 		{
 			if(state & 0x0f)
 			{
-				Game.Resources[index] = (state & 0xf0) & ((state & 0x0f) - 0x01);
+				Game.Resources[index] = (state & 0xf0) | ((state & 0x0f) - 0x01);
 			}
 		}
+		
+		LOG("Resource %d reduced to %d\n", id.id, Resource_GetRemaining(id));
 	}
 }
 
@@ -60,8 +66,8 @@ EntityID Resource_GetAtLocation(uint8_t x, uint8_t y)
 	
 	while(resourceIndex < MAX_RESOURCES)
 	{
-		if(x == pgm_read_byte(&CurrentMap->resourceLocations[resourceIndex].x)
-			&& y == pgm_read_byte(&CurrentMap->resourceLocations[resourceIndex].y))
+		if(x == pgm_read_byte(&Game.Map->resourceLocations[resourceIndex].x)
+			&& y == pgm_read_byte(&Game.Map->resourceLocations[resourceIndex].y))
 		{
 			found.id = resourceIndex;
 			found.type = Entity_Resource;
@@ -101,6 +107,7 @@ EntityID Resource_FindClosest(uint8_t x, uint8_t y, uint8_t maxDistance)
 				if(result.value == INVALID_ENTITY_VALUE || distance < closestDistance)
 				{
 					result.value = check.value;
+					closestDistance = distance;
 				}
 			}
 		}
@@ -115,8 +122,8 @@ inline void Resource_GetLocation(EntityID id, uint8_t* x, uint8_t* y)
 {
 	if(id.type == Entity_Resource && id.id < MAX_RESOURCES)
 	{
-		*x = pgm_read_byte(&CurrentMap->resourceLocations[id.id]);
-		*y = pgm_read_byte(&CurrentMap->resourceLocations[id.id]);
+		*x = pgm_read_byte(&Game.Map->resourceLocations[id.id].x);
+		*y = pgm_read_byte(&Game.Map->resourceLocations[id.id].y);
 	}
 	else
 	{

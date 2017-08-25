@@ -1,3 +1,4 @@
+#include "System.h"
 #include "Building.h"
 #include "Unit.h"
 #include "Pathing.h"
@@ -61,6 +62,9 @@ EntityID Building_Place(uint8_t team, uint8_t type, uint8_t x, uint8_t y)
 			
 			result.id = index;
 			result.type = Entity_Building;
+			
+			LOG("Building placed\n");
+			
 			return result;
 		}
 		index ++;
@@ -94,9 +98,9 @@ bool Building_IsAdjacentTo(Building* building, uint8_t x, uint8_t y)
 		return false;
 	if(building->y > 0 && y < building->y - 1)
 		return false;
-	if(x > building->x + typeInfo->width + 1)
+	if(x > building->x + typeInfo->width)
 		return false;
-	if(y > building->y + typeInfo->height + 1)
+	if(y > building->y + typeInfo->height)
 		return false;
 	return true;
 }
@@ -140,13 +144,13 @@ void Building_FindAdjacentSpace(Building* building, uint8_t* outX, uint8_t* outY
 		{
 			if(x >= 0 && x < MAP_SIZE)
 			{
-				if(building->y - ring - 1 >= 0 && Map_IsWalkable(x, building->y - ring - 1))
+				if(building->y - ring - 1 >= 0 && !Map_IsBlocked(x, building->y - ring - 1))
 				{
 					*outX = x;
 					*outY = building->y - ring - 1;
 					return;
 				}
-				if(building->y + ring + info->height < MAP_SIZE && Map_IsWalkable(x, building->y + ring + info->height))
+				if(building->y + ring + info->height < MAP_SIZE && !Map_IsBlocked(x, building->y + ring + info->height))
 				{
 					*outX = x;
 					*outY = building->y + ring + info->height;
@@ -158,13 +162,13 @@ void Building_FindAdjacentSpace(Building* building, uint8_t* outX, uint8_t* outY
 		{
 			if(y >= 0 && y < MAP_SIZE)
 			{
-				if(building->x - ring - 1 >= 0 && Map_IsWalkable(building->x - ring - 1, y))
+				if(building->x - ring - 1 >= 0 && !Map_IsBlocked(building->x - ring - 1, y))
 				{
 					*outX = building->x - ring - 1;
 					*outY = y;
 					return;
 				}
-				if(building->x + info->width + ring + 1 < MAP_SIZE && Map_IsWalkable(building->x + info->width + ring + 1, y))
+				if(building->x + info->width + ring + 1 < MAP_SIZE && !Map_IsBlocked(building->x + info->width + ring + 1, y))
 				{
 					*outX = building->x + ring + info->width + 1;
 					*outY = y;
@@ -177,7 +181,7 @@ void Building_FindAdjacentSpace(Building* building, uint8_t* outX, uint8_t* outY
 
 void Building_Update(Building* building)
 {
-	if(building->buildType > BuildType_Construct)
+	if(building->hp > 0 && building->buildType > BuildType_Construct)
 	{
 		building->buildProgress++;
 		
@@ -190,6 +194,12 @@ void Building_Update(Building* building)
 				case BuildType_TrainArcher:
 				case BuildType_TrainMage:
 				{
+					if(Player_GetPopulationCount(building->team) + 1 > Player_GetPopulationCapacity(building->team))
+					{
+						building->buildProgress = MAX_BUILD_PROGRESS;
+						return;
+					}
+					
 					uint8_t unitType = building->buildType - BuildType_TrainPeasant;
 					uint8_t spawnX, spawnY;
 					
@@ -207,9 +217,8 @@ void Building_Update(Building* building)
 			}
 			
 			building->buildType = BuildType_None;
+			building->buildProgress = 0;
 		}
-		
-		building->buildProgress = 0;
 	}
 }
 
@@ -220,4 +229,54 @@ Building* Building_Get(EntityID id)
 		return &Game.Buildings[id.id];
 	}
 	return NULL;
+}
+
+void Building_TrainUnit(Building* building, uint8_t unitType)
+{
+	if(building->buildType != BuildType_None)
+	{
+		return;
+	}
+
+	if(Player_GetPopulationCount(building->team) + 1 > Player_GetPopulationCapacity(building->team))
+	{
+		return;
+	}
+
+	const UnitTypeInfo* unitTypeInfo = &AllUnitTypeInfo[unitType];
+	uint8_t goldCost = pgm_read_byte(&unitTypeInfo->goldCost);
+
+	if(Game.Players[building->team].gold >= goldCost)
+	{
+		building->buildProgress = 0;
+		building->buildType = BuildType_TrainPeasant + unitType;
+		Game.Players[building->team].gold -= goldCost;
+		LOG("%d: Training unit %d\n", building->team, unitType);
+	}
+}
+
+EntityID Building_GetID(Building* building)
+{
+	EntityID result;
+	
+	for(uint8_t n = 0; n < MAX_BUILDINGS; n++)
+	{
+		if(&Game.Buildings[n] == building)
+		{
+			result.type = Entity_Building;
+			result.id = n;
+		}
+	}
+
+	result.value = INVALID_ENTITY_VALUE;
+	return result;
+}
+
+void Building_Demolish(Building* building)
+{
+	building->hp = 0;
+	
+	// TODO: some demolished state?
+	
+	Building_Destroy(Building_GetID(building));
 }

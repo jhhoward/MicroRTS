@@ -3,6 +3,8 @@
 #include <stdint.h>
 
 #define PATHING_LOOK_AHEAD_DISTANCE 20
+#define ALLOW_DIAGONAL_MOVEMENT 0
+#define ALLOW_SHORTCUTS 1
 
 typedef struct
 {
@@ -18,6 +20,7 @@ enum PathingState
 	Pathing_Failed,
 	Pathing_DirectPathHorizontalFirst,
 	Pathing_DirectPathVerticalFirst,
+	Pathing_DiagonalPath,
 	Pathing_FollowLeftWall,
 	Pathing_FollowRightWall,
 };

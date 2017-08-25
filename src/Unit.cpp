@@ -1,3 +1,4 @@
+#include "System.h"
 #include "Unit.h"
 #include "Fog.h"
 #include "Game.h"
@@ -32,37 +33,56 @@ EntityID Unit_GetAtLocation(uint8_t x, uint8_t y)
 EntityID Unit_Spawn(uint8_t team, uint8_t type, uint8_t x, uint8_t y)
 {
 	EntityID result;
+	uint8_t foundIndex = 0xff;
 	
-	uint8_t index = 0;
-	
-	while(index < MAX_UNITS)
+	for(uint8_t n = 0; n < MAX_UNITS; n++)
 	{
-		Unit* unit = &Game.Units[index];
-		if(unit->type == UnitType_Invalid)
+		if(Game.Units[n].type == UnitType_Invalid)
 		{
-			const UnitTypeInfo* typeInfo = &AllUnitTypeInfo[type];
-			
-			unit->type = type;
-			unit->team = team;
-			unit->hp = typeInfo->hp;
-			unit->offsetX = unit->offsetY = 0;
-			unit->order = OrderType_None;
-			unit->target.value = INVALID_ENTITY_VALUE;
-
-			unit->agent.x = x;
-			unit->agent.y = y;
-			
-			result.id = index;
-			result.type = Entity_Unit;
-
-			Fog_RevealBlock(unit->team, unit->agent.x, unit->agent.y, UNIT_SIGHT_DISTANCE);
-
-			return result;
+			foundIndex = n;
+			break;
 		}
-		index ++;
-	}	
+	}
 	
-	result.value = INVALID_ENTITY_VALUE;
+	if(foundIndex == 0xff)
+	{
+		for(uint8_t n = 0; n < MAX_UNITS; n++)
+		{
+			if(Game.Units[n].type == 0)
+			{
+				foundIndex = n;
+				break;
+			}
+		}
+	}
+	
+	if(foundIndex == 0xff)
+	{
+		result.value = INVALID_ENTITY_VALUE;
+		return result;
+	}
+		
+	Unit* unit = &Game.Units[foundIndex];
+	const UnitTypeInfo* typeInfo = &AllUnitTypeInfo[type];
+	
+	unit->type = type;
+	unit->team = team;
+	unit->hp = pgm_read_byte(&typeInfo->hp);
+	unit->offsetX = unit->offsetY = 0;
+	unit->order = OrderType_None;
+	unit->state = UnitState_Idle;
+	unit->target.value = INVALID_ENTITY_VALUE;
+
+	unit->agent.x = x;
+	unit->agent.y = y;
+	
+	result.id = foundIndex;
+	result.type = Entity_Unit;
+
+	Fog_RevealBlock(unit->team, unit->agent.x, unit->agent.y, UNIT_SIGHT_DISTANCE);
+
+	LOG("%d: Unit spawned of type %d at %d %d\n", team, type, x, y);
+		
 	return result;
 }
 
@@ -103,3 +123,4 @@ Unit* Unit_Get(EntityID id)
 	}
 	return NULL;
 }
+

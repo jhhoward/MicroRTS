@@ -5,6 +5,7 @@
 #include "Building.h"
 #include "Player.h"
 #include "Resource.h"
+#include "Map.h"
 
 enum GameState
 {
@@ -30,6 +31,7 @@ typedef struct
 	Building Buildings[MAX_BUILDINGS];
 	uint8_t Resources[MAX_RESOURCES >> 1];
 	
+	const Map* Map;
 } GameData;
 
 extern GameData Game;

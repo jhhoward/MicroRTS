@@ -35,6 +35,7 @@ enum UnitState
 	UnitState_Mining,
 	UnitState_Constructing,
 	UnitState_Repairing,
+	UnitState_Dead
 };
 
 typedef struct
@@ -55,12 +56,21 @@ typedef struct
 	
 	union
 	{
+		uint8_t stateData;
+		
+		// For move state:
 		struct
 		{
 			int8_t offsetX : 4;
 			int8_t offsetY : 4;
 		};
+		
+		// For mining state:
 		uint8_t miningProgress;
+		
+		// For attack state:
+		uint8_t attackCooldown;
+		EntityID attackTarget;
 	};
 	
 	uint8_t hp;
@@ -84,6 +94,8 @@ EntityID Unit_Spawn(uint8_t team, uint8_t type, uint8_t x, uint8_t y);
 void Unit_Destroy(EntityID unit);
 bool Unit_IsAdjacentTo(Unit* unit, uint8_t x, uint8_t y);
 
+void Unit_Kill(Unit* unit);
+
 void Unit_Update(Unit* unit);
 
 void Unit_OrderMove(Unit* unit, uint8_t x, uint8_t y);
@@ -91,3 +103,4 @@ void Unit_OrderAttack(Unit* unit, EntityID target);
 void Unit_OrderBuildingInteraction(Unit* unit, EntityID target);
 void Unit_OrderStop(Unit* unit);
 
+EntityID Unit_FindClosestTarget(uint8_t targetTeam, uint8_t x, uint8_t y, uint8_t searchDistance);
